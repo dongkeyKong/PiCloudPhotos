@@ -1,35 +1,34 @@
 # 📸 PiCloud Photos: Secure Family iCloud Replacement
-### Built for Raspberry Pi 4 / 5 + NVMe SSD with Zero-Trust Tailscale VPN
+### Built for Raspberry Pi 4 / 5 + NVMe SSD with Zero-Trust Tailscale VPN & Automated 2TB Google Drive Offsite Backup
 
-Replace paid iCloud and Google Photos subscriptions with an automated, blazing-fast self-hosted backup engine running on your **Raspberry Pi** and an **NVMe SSD**.
+Replace paid iCloud and Google Photos subscriptions with an automated, blazing-fast self-hosted backup engine running on your **Raspberry Pi** and an **NVMe SSD**, backed by **encrypted 2TB offsite disaster recovery**.
 
 ---
 
-## 🔒 Security Hardening Architecture
+## 🔒 Security & Privacy Architecture
 
-When hosting family photos, **security is priority #1**. Most self-hosted tutorials tell you to open port 2283 on your home Wi-Fi router (port forwarding), which exposes your private family photos to internet port scanners and automated bots.
-
-**PiCloud Photos uses a Zero-Trust WireGuard Mesh architecture instead:**
+When hosting family photos, **privacy is non-negotiable**. PiCloud Photos uses a multi-layered security and redundancy design:
 
 ```text
        [ iPhone / Android (Family Members) ]
                          │
-        (Encrypted WireGuard Mesh Tunnel - Tailscale)
+      (End-to-End Encrypted WireGuard Tunnel via Tailscale)
                          │  (NO OPEN ROUTER PORTS!)
                          ▼
-        [ Raspberry Pi: Tailscale VPN Sidecar ]
-                         │  (Isolated Docker Internal Network)
+        [ immich_tailscale Container Sidecar ]
+                         │  (Internal Docker Network)
                          ▼
-        [ Immich Photo Server + PostgreSQL Vector DB ]
+        [ immich_server + PostgreSQL Vector DB + Redis ]
                          │
-        [ High-Speed NVMe Storage (/mnt/nvme/immich) ]
+        [ High-Speed Local NVMe Storage (/mnt/nvme/immich) ]
+                         │
+                         ▼ (Every Night at 3:00 AM via cron)
+        [ Automated Client-Side AES-256 Encrypted Sync ]
+                         │
+                         ▼
+        [ Your 2TB Google Drive (Gemini Advanced Plan) ]
+        (100% Zero-Knowledge: Google cannot scan or view your photos!)
 ```
-
-### Security Safeguards Implemented:
-1. **Zero Open Router Ports**: You never have to configure UPnP or port forward port 80, 443, or 2283 on your home router.
-2. **End-to-End Encryption**: All traffic between your family's phones and the Pi is encrypted with peer-to-peer WireGuard (via Tailscale).
-3. **Database Isolation**: PostgreSQL and Redis are bound strictly to Docker's internal private bridge; they are completely invisible to external networks.
-4. **POSIX Storage Permissions**: Storage directories enforce strict user permissions (`chmod 700` on database files) so other processes cannot read raw photo chunks.
 
 ---
 
@@ -37,9 +36,9 @@ When hosting family photos, **security is priority #1**. Most self-hosted tutori
 
 ### Step 1: Copy to Your Raspberry Pi
 ```bash
-git clone https://github.com/dongkeykong/PiCloudPhotos.git # (or copy this folder)
+git clone https://github.com/dongkeykong/PiCloudPhotos.git
 cd PiCloudPhotos
-chmod +x setup-nvme.sh install.sh
+chmod +x setup-nvme.sh install.sh backup/*.sh
 ```
 
 ### Step 2: Run the Installer
@@ -53,30 +52,42 @@ The script will:
 
 ---
 
+## ☁️ Leveraging Your 2TB Google One / Gemini Storage (Zero Extra Cost)
+
+Never lose family memories even in a house fire or drive failure. Back up your NVMe drive to your included **2TB Google Drive** with **zero-knowledge client-side encryption**:
+
+### 1. Run the Google Backup Setup Wizard
+```bash
+./backup/setup-google-backup.sh
+```
+Follow the short terminal prompts to link your Google account and set your master encryption password.
+
+### What Happens Automatically:
+* **Nightly at 3:00 AM**: Dumps your PostgreSQL database (albums, tags, user accounts, and facial recognition data).
+* **AES-256 Client-Side Encryption**: Photos and videos are encrypted on the Pi *before* uploading to Google Drive.
+* **100% Private**: Google only sees unreadable encrypted chunks.
+* **Incremental Sync**: Only uploads newly taken photos each night.
+* **1-Click Disaster Recovery**: If your Pi or NVMe ever dies, run `./backup/restore-backup.sh` on a new drive to bring back everything in one command.
+
+---
+
 ## 🔑 Linking Tailscale (One-Time Setup)
 
 Once the installer finishes, run:
 ```bash
 sudo docker exec -it immich_tailscale tailscale up
 ```
-1. It prints a short `https://login.tailscale.com/a/...` authorization URL in your terminal.
-2. Open that link in any browser, log in with your free Tailscale account, and click **Approve**.
-3. Your Raspberry Pi is now securely joined to your private mesh VPN as **`picloud-photos`**!
+Click the printed link to approve the Pi in your free Tailscale account. Your Pi is now joined to your private mesh VPN as **`picloud-photos`**!
 
 ---
 
 ## 📱 Family Phone Onboarding (Under 3 Minutes)
 
 1. **Install Apps**:
-   - Install **Tailscale** on your family members' phones and log into your Tailscale network.
+   - Install **Tailscale** on your family members' phones and log in.
    - Install the free **Immich** app from the App Store (iOS) or Google Play (Android).
 2. **Connect**:
-   - Open the Immich app on their phone.
-   - Set the server URL to:
-     ```text
-     http://picloud-photos:2283/api
-     ```
-   *(Or use the local Wi-Fi IP `http://192.168.1.x:2283/api` when at home).*
+   - Set the server URL to: `http://picloud-photos:2283/api`.
 3. **Turn on Background Backup**:
    - In Immich, tap **Profile ➔ Backup ➔ Enable Background Backup**.
    - Photos, Apple Live Photos, and 4K videos will now back up automatically over Wi-Fi or cellular data from anywhere in the world!
