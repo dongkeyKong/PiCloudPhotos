@@ -4,6 +4,8 @@ services:
   # ============================================================================
   # TAILSCALE: Encrypted Zero-Trust Mesh VPN Sidecar
   # Routes all external family traffic over WireGuard without open router ports.
+  # Publishes port 2283 so immich-server (running in tailscale's network) is reachable
+  # via MagicDNS (http://picloud-photos:2283) AND local LAN (port 2283).
   # ============================================================================
   tailscale:
     container_name: immich_tailscale
@@ -13,31 +15,40 @@ services:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
+      - TS_EXTRA_ARGS=--reset
     volumes:
       - tailscale-state:/var/lib/tailscale
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    ports:
+      # Bind port 2283 on host LAN and Tailscale mesh
+      - "${LOCAL_LAN_IP:-0.0.0.0}:2283:2283"
     restart: always
 
   # ============================================================================
   # IMMICH SERVER: Application Backend & Web UI
-  # Hardened: Binds ONLY to local home subnet (127.0.0.1 / local LAN) & Tailscale
+  # Runs inside Tailscale's network namespace (network_mode: service:tailscale)
+  # This guarantees MagicDNS http://picloud-photos:2283 routes directly to Immich!
   # ============================================================================
   immich-server:
     container_name: immich_server
-    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-v1.121.0}
+    network_mode: "service:tailscale"
     volumes:
       - ${UPLOAD_LOCATION}:/usr/src/app/upload
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
-    # Network mode host/service or local binding prevents WAN exposure
-    ports:
-      - "127.0.0.1:2283:2283" # Localhost only
-      - "${LOCAL_LAN_IP:-0.0.0.0}:2283:2283" # Home LAN port
+    environment:
+      - DB_HOSTNAME=database
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DATABASE_NAME=${DB_DATABASE_NAME}
+      - REDIS_HOSTNAME=redis
     depends_on:
+      - tailscale
       - redis
       - database
     restart: always
@@ -46,15 +57,23 @@ services:
 
   # ============================================================================
   # MACHINE LEARNING: Facial Recognition, Smart Search & Geocoding
-  # Internal network only: Zero exposed external ports
+  # Resource-constrained for Raspberry Pi 4/5 (Cortex-A72/A76) stability.
   # ============================================================================
   immich-machine-learning:
     container_name: immich_machine_learning
-    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v1.121.0}
     volumes:
       - model-cache:/cache
     env_file:
       - .env
+    environment:
+      - MACHINE_LEARNING_WORKERS=${IMMICH_MACHINE_LEARNING_WORKERS:-1}
+      - MACHINE_LEARNING_INTER_OP_THREADS=${IMMICH_MACHINE_LEARNING_INTER_OP_THREADS:-1}
+      - MACHINE_LEARNING_INTRA_OP_THREADS=${IMMICH_MACHINE_LEARNING_INTRA_OP_THREADS:-2}
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
     restart: always
     healthcheck:
       disable: false
@@ -72,7 +91,6 @@ services:
 
   # ============================================================================
   # POSTGRESQL + PGVECTO-RS: Vector Database & Metadata Storage
-  # Internal network only with automated checksum validation
   # ============================================================================
   database:
     container_name: immich_postgres

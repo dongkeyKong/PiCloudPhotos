@@ -1,0 +1,16 @@
+# Environment variables & secrets
+.env
+
+# Local database dumps and backups
+database_backups/
+*.sql
+*.sql.gz
+*.log
+
+# Tailscale local state
+tailscale-state/
+
+# Cache and temporary files
+model-cache/
+.DS_Store
+Thumbs.db
